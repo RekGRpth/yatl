@@ -1,5 +1,6 @@
 import cgi
-from . sanitizer import sanitize, xmlescape, PY2
+from . import sanitizer
+from . sanitizer import xmlescape, PY2
 
 try:
     # python 2
@@ -9,13 +10,24 @@ except ImportError:
     import copyreg as copy_reg
     str, unicode = bytes, str
 
-__all__ = ['A', 'BEAUTIFY', 'BODY', 'CAT', 'CODE', 'DIV', 'EM', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEAD', 'HTML', 'IMG', 'INPUT', 'LABEL', 'LI', 'METATAG', 'OL', 'OPTION', 'PRE', 'SELECT', 'SPAN', 'STRONG', 'TABLE', 'TAG', 'TAGGER', 'TBODY', 'TD', 'TEXTAREA', 'TH', 'THAED', 'TR', 'UL', 'XML', 'xmlescape', 'I', 'META', 'LINK']
+__all__ = ['A', 'BEAUTIFY', 'BODY', 'CAT', 'CODE', 'DIV', 'EM', 'FORM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HEAD', 'HTML', 'IMG', 'INPUT', 'LABEL', 'LI', 'METATAG', 'OL', 'OPTION', 'PRE', 'SELECT', 'SPAN', 'STRONG', 'TABLE', 'TAG', 'TAGGER', 'TBODY', 'TD', 'TEXTAREA', 'TH', 'THAED', 'TR', 'UL', 'XML', 'xmlescape', 'I', 'META', 'LINK', 'TITLE']
 
 # ################################################################
 # New HTML Helpers
 # ################################################################
 
-class TAGGER(object):    
+INVALID_CHARS = set(" ='\"></")
+
+def _vk(k):
+    """validate atribute name of tag
+        @k: atribute name
+    """
+    invalid_chars = set(k) & INVALID_CHARS
+    if invalid_chars:
+        raise ValueError("Invalid caracters %s in attribute name" % list(invalid_chars))
+    return k
+
+class TAGGER(object):
 
     def __init__(self, name, *children, **attributes):
         self.name = name
@@ -28,13 +40,13 @@ class TAGGER(object):
     def xml(self):
         name = self.name
         a = ' '.join('%s="%s"' % 
-                     (k[1:], k[1:] if v is True else xmlescape(unicode(v)))
+                     (_vk(k[1:]), _vk(k[1:]) if v is True else xmlescape(unicode(v)))
                      for k,v in self.attributes.items() 
                      if k.startswith('_') and not (v is False or v is None))
         if a:
             a = ' '+a
         if name.endswith('/'):
-            return '<%s%s/>' % (name, a)
+            return '<%s%s/>' % (name[0:-1], a)
         else:
             b = ''.join(s.xml() if isinstance(s,TAGGER) else xmlescape(unicode(s))
                         for s in self.children)
@@ -77,55 +89,60 @@ class TAGGER(object):
         raise NotImplementedError
 
 class METATAG(object):
+    __all_tags__ = set()
 
+    @classmethod
+    def _add_tag(cls, name):
+        cls.__all_tags__.add(name)
+ 
     def __getattr__(self, name):
-        return self(name)
+        return self[name]
 
     def __getitem__(self, name):
         return lambda *children, **attributes: TAGGER(name, *children, **attributes)
 
 class CAT(TAGGER):
-    def __init__(self, children):
+    def __init__(self, *children):
         self.children = children
-        self.attributes = attributes
 
     def xml(self):
         return ''.join(s.xml() if isinstance(s,TAGGER) else xmlescape(unicode(s)) for s in self.children)
 
 TAG = METATAG()
-DIV = TAG['div']
-SPAN = TAG['span']
-LI = TAG['li']
-OL = TAG['ol']
-UL = TAG['ul']
-A  = TAG['a']
-H1 = TAG['h1']
-H2 = TAG['h2']
-H3 = TAG['h3']
-H4 = TAG['h4']
-H5 = TAG['h5']
-H6 = TAG['h6']
-EM = TAG['em']
-TR = TAG['tr']
-TD = TAG['td']
-TH = TAG['th']
+DIV = TAG.div
+SPAN = TAG.span
+LI = TAG.li
+OL = TAG.ol
+UL = TAG.ul
+I = TAG.i
+A = TAG.a
+H1 = TAG.h1
+H2 = TAG.h2
+H3 = TAG.h3
+H4 = TAG.h4
+H5 = TAG.h5
+H6 = TAG.h6
+EM = TAG.em
+TR = TAG.tr
+TD = TAG.td
+TH = TAG.th
+PRE = TAG.pre
+CODE = TAG.code
+FORM = TAG.form
+HEAD = TAG.head
+HTML = TAG.html
+BODY = TAG.body
+TABLE = TAG.table
+THAED = TAG.thead
+TBODY = TAG.tbody
+LABEL = TAG.label
+STRONG = TAG.strong
+SELECT = TAG.select
+OPTION = TAG.option
+TEXTAREA = TAG.textarea
+TITLE = TAG.title
 IMG = TAG['img/']
-PRE = TAG['pre']
-CODE = TAG['code']
-FORM = TAG['form']
-HEAD = TAG['head']
-HTML = TAG['html']
-BODY = TAG['body']
-TABLE = TAG['table']
-THAED = TAG['thead']
-TBODY = TAG['tbody']
 INPUT = TAG['input/']
-LABEL = TAG['label']
-STRONG = TAG['strong']
-SELECT = TAG['select']
-OPTION = TAG['option']
-TEXTAREA = TAG['textarea']
-I = TAG['i']
 META = TAG['meta/']
 LINK = TAG['link/']
 
@@ -171,7 +188,7 @@ class XML(TAGGER):
         """
 
         if sanitize:
-            text = sanitize(text, permitted_tags, allowed_attributes)
+            text = sanitizer.sanitize(text, permitted_tags, allowed_attributes)
         if PY2 and isinstance(text, unicode):
             text = text.encode('utf8', 'xmlcharrefreplace')
         self.text = unicode(text)
