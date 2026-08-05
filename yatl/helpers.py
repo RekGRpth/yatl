@@ -16,7 +16,6 @@ def escape(value):
 
 
 __all__ = [
-    "A",
     "BEAUTIFY",
     "BODY",
     "CAT",
@@ -36,34 +35,35 @@ __all__ = [
     "INPUT",
     "LABEL",
     "LI",
+    "LINK",
+    "META",
     "METATAG",
     "OL",
     "OPTION",
-    "P",
     "PRE",
+    "SCRIPT",
     "SELECT",
     "SPAN",
     "STRONG",
+    "STYLE",
     "TABLE",
     "TAG",
     "TAGGER",
-    "THEAD",
     "TBODY",
     "TD",
     "TEXTAREA",
     "TH",
-    "TT",
+    "THEAD",
+    "TITLE",
     "TR",
+    "TT",
     "UL",
     "XML",
-    "xmlescape",
-    "escape",
+    "A",
     "I",
-    "META",
-    "LINK",
-    "TITLE",
-    "STYLE",
-    "SCRIPT",
+    "P",
+    "escape",
+    "xmlescape",
 ]
 
 INVALID_CHARS = set(" ='\"></")
@@ -80,7 +80,7 @@ def _vk(k):
     """
     invalid_chars = set(k) & INVALID_CHARS
     if invalid_chars:
-        raise ValueError("Invalid caracters %s in attribute name" % list(invalid_chars))
+        raise ValueError(f"Invalid caracters {list(invalid_chars)} in attribute name")
     return k
 
 
@@ -107,17 +107,17 @@ class TAGGER:
                     value = _vk(key[1:])
                 else:
                     value = escape(value)
-                parts.append('%s="%s"' % (_vk(key[1:]), value))
+                parts.append(f'{_vk(key[1:])}="{value}"')
         joined = " ".join(parts)
         if joined:
             joined = " " + joined
         if name.endswith("/"):
-            return "<%s%s/>" % (name[0:-1], joined)
+            return f"<{name[0:-1]}{joined}/>"
         else:
             content = "".join(
                 s.xml() if is_helper(s) else escape(s) for s in self.children
             )
-            return "<%s%s>%s</%s>" % (name, joined, content, name)
+            return f"<{name}{joined}>{content}</{name}>"
 
     def __str__(self):
         data = self.xml()
@@ -285,10 +285,10 @@ class TAGGER:
                     kargs["_id"] = match_id.group(1)
                 if match_class:
                     # jQuery Class Selector (".class")
-                    kargs["_class"] = re.compile(
-                        r"(?<!\w)%s(?!\w)"
-                        % match_class.group(1).replace("-", r"\-").replace(":", r"\:")
+                    escaped_class = (
+                        match_class.group(1).replace("-", r"\-").replace(":", r"\:")
                     )
+                    kargs["_class"] = re.compile(rf"(?<!\w){escaped_class}(?!\w)")
                 for aitem in match_attr:
                     # jQuery Attribute Equals Selector ("[name=value]")
                     kargs["_" + aitem.group(1)] = aitem.group(2)
@@ -406,7 +406,7 @@ SPAN = TAG.span
 LI = TAG.li
 OL = TAG.ol
 UL = TAG.ul
-I = TAG.i  # noqa: E741
+I = TAG.i
 A = TAG.a
 P = TAG.p
 H1 = TAG.h1
@@ -449,6 +449,44 @@ def SCRIPT(body, **attr):
 # New XML Helpers
 # ################################################################
 
+# Defaults for XML(sanitize=True). Module level constants (never mutated) so
+# that they are not rebuilt on every call and do not appear as mutable
+# argument defaults.
+XML_PERMITTED_TAGS = [
+    "a",
+    "b",
+    "blockquote",
+    "br/",
+    "i",
+    "li",
+    "ol",
+    "ul",
+    "p",
+    "cite",
+    "code",
+    "pre",
+    "img/",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "tr",
+    "td",
+    "div",
+    "strong",
+    "span",
+]
+
+XML_ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title", "target"],
+    "img": ["src", "alt"],
+    "blockquote": ["type"],
+    "td": ["colspan"],
+}
+
 
 class XML(TAGGER):
     """
@@ -465,39 +503,8 @@ class XML(TAGGER):
         self,
         text,
         sanitize=False,
-        permitted_tags=[
-            "a",
-            "b",
-            "blockquote",
-            "br/",
-            "i",
-            "li",
-            "ol",
-            "ul",
-            "p",
-            "cite",
-            "code",
-            "pre",
-            "img/",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "table",
-            "tr",
-            "td",
-            "div",
-            "strong",
-            "span",
-        ],
-        allowed_attributes={
-            "a": ["href", "title", "target"],
-            "img": ["src", "alt"],
-            "blockquote": ["type"],
-            "td": ["colspan"],
-        },
+        permitted_tags=XML_PERMITTED_TAGS,
+        allowed_attributes=XML_ALLOWED_ATTRIBUTES,
     ):
         """
         Args:
@@ -525,10 +532,10 @@ class XML(TAGGER):
         return self.text
 
     def __add__(self, other):
-        return "%s%s" % (self, other)
+        return f"{self}{other}"
 
     def __radd__(self, other):
-        return "%s%s" % (other, self)
+        return f"{other}{self}"
 
     def __hash__(self):
         return hash(str(self))
@@ -537,8 +544,7 @@ class XML(TAGGER):
         return str(self)[i]
 
     def __iter__(self):
-        for c in str(self):
-            yield c
+        yield from str(self)
 
     def __len__(self):
         return len(self.text)

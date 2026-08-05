@@ -34,7 +34,7 @@ class TestHelpers(unittest.TestCase):
         i = [" ", "=", "'", '"', ">", "<", "/"]
         for x in i:
             DIV = TAG.div
-            b = "_any%sthings" % x
+            b = f"_any{x}things"
             attr = {b: "invalid_atribute_name"}
             self.assertRaises(ValueError, DIV("any content", **attr).xml)
 
@@ -126,7 +126,7 @@ class TestHelpers(unittest.TestCase):
                         permitted_tags=permitted_tags,
                         allowed_attributes=allowed_attributes,
                     ).xml(),
-                    "<%s></%s>" % (x, x) if not x[-1] == "/" else "<%s>" % x,
+                    f"<{x}></{x}>" if x[-1] != "/" else f"<{x}>",
                 )
 
         # test tag out of list
@@ -150,7 +150,7 @@ class TestHelpers(unittest.TestCase):
             "tbody",
             "thead",
             "tfoot",
-            "tr" "strong",
+            "tr",
         ]
         for x in out_of_list:
             T = TAG[x]
@@ -161,7 +161,7 @@ class TestHelpers(unittest.TestCase):
                     permitted_tags=permitted_tags,
                     allowed_attributes=allowed_attributes,
                 ).xml(),
-                "&lt;%s&gt;&lt;/%s&gt;" % (x, x),
+                f"&lt;{x}&gt;&lt;/{x}&gt;",
             )
         # test unusual tags
         for x in ["evil", "n0c1v3"]:
@@ -173,7 +173,7 @@ class TestHelpers(unittest.TestCase):
                     permitted_tags=permitted_tags,
                     allowed_attributes=allowed_attributes,
                 ).xml(),
-                "&lt;%s&gt;&lt;/%s&gt;" % (x, x),
+                f"&lt;{x}&gt;&lt;/{x}&gt;",
             )
         # test allowed_attributes
         s_tag = TAG["td"]("content_td", _colspan="2", _extra_attr="invalid").xml()
@@ -279,6 +279,60 @@ class TestHelpers(unittest.TestCase):
             ).xml(),
             "",
         )
+
+    def test_sanitize_attribute_breakout(self):
+        # XssCleaner.handle_starttag historically emitted url-bearing
+        # attributes (href, src, background) using raw string
+        # interpolation:
+        #
+        #     bt += ' %s="%s"' % (attribute, attrs[attribute])
+        #
+        # HTMLParser decodes character references inside attribute
+        # values before delegating to handle_starttag, so &quot; arrives
+        # as a literal `"`. The unescaped interpolation then let that
+        # quote close the attribute on the way out, injecting sibling
+        # attributes such as onclick=, onerror=, ... -- a real XSS.
+        # Route those attributes through quoteattr like every other
+        # attribute does, and verify with HTMLParser that the cleaned
+        # output never carries an event-handler attribute.
+        from html.parser import HTMLParser
+
+        payloads = [
+            '<a href="https://example.com/&quot; onclick=&quot;alert(1)">x</a>',
+            '<a href="http://a.b/&quot; onmouseover=&quot;alert(1)">x</a>',
+            '<img src="http://a.b/&quot; onerror=&quot;alert(1)" alt="x">',
+            "<a href='http://a.b/&quot; onclick=&quot;alert(1)'>x</a>",
+        ]
+        event_handlers = (
+            "onclick",
+            "onerror",
+            "onmouseover",
+            "onload",
+            "onfocus",
+            "onmouseout",
+        )
+
+        class _Spy(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.seen_attrs = []
+
+            def handle_starttag(self, tag, attrs):
+                self.seen_attrs.extend(name.lower() for name, _ in attrs)
+
+            handle_startendtag = handle_starttag
+
+        for raw in payloads:
+            cleaned = XML(raw, sanitize=True).xml()
+            spy = _Spy()
+            spy.feed(cleaned)
+            seen_attrs = spy.seen_attrs
+            for handler in event_handlers:
+                self.assertNotIn(
+                    handler,
+                    seen_attrs,
+                    f"sanitize() leaked {handler} via attribute-breakout: {cleaned!r}",
+                )
 
     def test_find(self):
         a = DIV("A", _class="a")

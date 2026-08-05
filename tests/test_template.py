@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
     Unit tests for gluon.template
 """
@@ -13,14 +11,14 @@ from yatl.template import NOESCAPE, DummyResponse
 class TestTemplate(unittest.TestCase):
     def testRun(self):
         self.assertEqual(
-            render(content="{{for i in range(n):}}{{=i}}{{pass}}", context=dict(n=3)),
+            render(content="{{for i in range(n):}}{{=i}}{{pass}}", context={"n": 3}),
             "012",
         )
         self.assertEqual(
-            render(content="{{if n>2:}}ok{{pass}}", context=dict(n=3)), "ok"
+            render(content="{{if n>2:}}ok{{pass}}", context={"n": 3}), "ok"
         )
         self.assertEqual(
-            render(content="{{try:}}{{n/0}}{{except:}}fail{{pass}}", context=dict(n=3)),
+            render(content="{{try:}}{{n/0}}{{except:}}fail{{pass}}", context={"n": 3}),
             "fail",
         )
         self.assertEqual(render(content='{{="<&>"}}'), "&lt;&amp;&gt;")
@@ -119,7 +117,7 @@ class TestTemplate(unittest.TestCase):
                 )
             elif path == pjoin("views", "default", "noescape.html"):
                 return "{{=NOESCAPE('<script></script>')}}"
-            raise IOError
+            raise OSError
 
         self.assertEqual(
             render(

@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """
 | From http://aspn.activestate.com/ASPN/Cookbook/Python/Recipe/496942
 | Submitter: Josh Goldfoot (other recipes)
@@ -18,6 +16,50 @@ from xml.sax.saxutils import quoteattr
 
 __all__ = ["sanitize"]
 
+# Defaults are module level constants (never mutated) so that they are not
+# rebuilt on every call and do not appear as mutable argument defaults.
+CLEANER_PERMITTED_TAGS = [
+    "a",
+    "b",
+    "blockquote",
+    "br/",
+    "i",
+    "li",
+    "ol",
+    "ul",
+    "p",
+    "cite",
+    "code",
+    "pre",
+    "img/",
+]
+
+CLEANER_ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title"],
+    "img": ["src", "alt"],
+    "blockquote": ["type"],
+}
+
+PERMITTED_TAGS = CLEANER_PERMITTED_TAGS + [
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "tbody",
+    "thead",
+    "tfoot",
+    "tr",
+    "td",
+    "div",
+    "strong",
+    "span",
+]
+
+ALLOWED_ATTRIBUTES = {**CLEANER_ALLOWED_ATTRIBUTES, "td": ["colspan"]}
+
 
 def xmlescape(text, quote=True, colon=False):
     if not isinstance(text, str):
@@ -34,26 +76,8 @@ def xmlescape(text, quote=True, colon=False):
 class XssCleaner(HTMLParser):
     def __init__(
         self,
-        permitted_tags=[
-            "a",
-            "b",
-            "blockquote",
-            "br/",
-            "i",
-            "li",
-            "ol",
-            "ul",
-            "p",
-            "cite",
-            "code",
-            "pre",
-            "img/",
-        ],
-        allowed_attributes={
-            "a": ["href", "title"],
-            "img": ["src", "alt"],
-            "blockquote": ["type"],
-        },
+        permitted_tags=CLEANER_PERMITTED_TAGS,
+        allowed_attributes=CLEANER_ALLOWED_ATTRIBUTES,
         strip_disallowed=False,
     ):
         HTMLParser.__init__(self, convert_charrefs=False)
@@ -84,29 +108,29 @@ class XssCleaner(HTMLParser):
         elif len(ref) < 7 and (
             ref.isdigit() or ref == "x27"
         ):  # x27 is a special case for apostrophe
-            self.result += "&#%s;" % ref
+            self.result += f"&#{ref};"
         else:
-            self.result += xmlescape("&#%s" % ref)
+            self.result += xmlescape(f"&#{ref}")
 
     def handle_entityref(self, ref):
         if self.in_disallowed[-1]:
             return
         elif ref in entitydefs:
-            self.result += "&%s;" % ref
+            self.result += f"&{ref};"
         else:
-            self.result += xmlescape("&%s" % ref)
+            self.result += xmlescape(f"&{ref}")
 
     def handle_comment(self, comment):
         if self.in_disallowed[-1]:
             return
         elif comment:
-            self.result += xmlescape("<!--%s-->" % comment)
+            self.result += xmlescape(f"<!--{comment}-->")
 
     def handle_starttag(self, tag, attrs):
         if tag not in self.permitted_tags:
             self.in_disallowed.append(True)
             if not self.strip_disallowed:
-                self.result += xmlescape("<%s>" % tag)
+                self.result += xmlescape(f"<{tag}>")
         else:
             self.in_disallowed.append(False)
             bt = "<" + tag
@@ -120,12 +144,17 @@ class XssCleaner(HTMLParser):
                 for attribute in self.allowed_attributes_here:
                     if attribute in ["href", "src", "background"]:
                         if self.url_is_acceptable(attrs[attribute]):
-                            bt += ' %s="%s"' % (attribute, attrs[attribute])
+                            # Route URL-bearing attributes through
+                            # quoteattr like every other attribute below.
+                            # HTMLParser decodes character references
+                            # (e.g. &quot; -> ") inside attribute values
+                            # before handing them to us, so naive
+                            # interpolation lets attacker-supplied quotes
+                            # close the attribute and inject sibling
+                            # attributes such as onclick=, onerror=, etc.
+                            bt += f" {attribute}={quoteattr(attrs[attribute])}"
                     else:
-                        bt += " %s=%s" % (
-                            xmlescape(attribute),
-                            quoteattr(attrs[attribute]),
-                        )
+                        bt += f" {xmlescape(attribute)}={quoteattr(attrs[attribute])}"
             # deal with <a> without href and <img> without src
             if bt == "<a" or bt == "<img":
                 return
@@ -137,7 +166,7 @@ class XssCleaner(HTMLParser):
                 self.open_tags.insert(0, tag)
 
     def handle_endtag(self, tag):
-        bracketed = "</%s>" % tag
+        bracketed = f"</{tag}>"
         self.in_disallowed and self.in_disallowed.pop()
         if tag not in self.permitted_tags:
             if not self.strip_disallowed:
@@ -174,14 +203,14 @@ class XssCleaner(HTMLParser):
         if not isinstance(rawstring, str):
             return str(rawstring)
         for tag in self.requires_no_close:
-            rawstring = rawstring.replace("<%s />" % tag, "<%s/>" % tag)
+            rawstring = rawstring.replace(f"<{tag} />", f"<{tag}/>")
         if not escape:
             self.strip_disallowed = True
         self.result = ""
         self.feed(rawstring)
         for endtag in self.open_tags:
             if endtag not in self.requires_no_close:
-                self.result += "</%s>" % endtag
+                self.result += f"</{endtag}>"
         return self.result
 
     def xtags(self):
@@ -194,49 +223,15 @@ class XssCleaner(HTMLParser):
             tg += "<" + x
             if x in self.allowed_attributes:
                 for y in self.allowed_attributes[x]:
-                    tg += ' %s=""' % y
+                    tg += f' {y}=""'
             tg += "> "
         return xmlescape(tg.strip())
 
 
 def sanitize(
     text,
-    permitted_tags=[
-        "a",
-        "b",
-        "blockquote",
-        "br/",
-        "i",
-        "li",
-        "ol",
-        "ul",
-        "p",
-        "cite",
-        "code",
-        "pre",
-        "img/",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "table",
-        "tbody",
-        "thead",
-        "tfoot",
-        "tr",
-        "td",
-        "div",
-        "strong",
-        "span",
-    ],
-    allowed_attributes={
-        "a": ["href", "title"],
-        "img": ["src", "alt"],
-        "blockquote": ["type"],
-        "td": ["colspan"],
-    },
+    permitted_tags=PERMITTED_TAGS,
+    allowed_attributes=ALLOWED_ATTRIBUTES,
     escape=True,
 ):
     if not isinstance(text, str):
