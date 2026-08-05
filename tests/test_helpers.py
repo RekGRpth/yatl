@@ -34,7 +34,7 @@ class TestHelpers(unittest.TestCase):
         i = [" ", "=", "'", '"', ">", "<", "/"]
         for x in i:
             DIV = TAG.div
-            b = "_any%sthings" % x
+            b = f"_any{x}things"
             attr = {b: "invalid_atribute_name"}
             self.assertRaises(ValueError, DIV("any content", **attr).xml)
 
@@ -126,7 +126,7 @@ class TestHelpers(unittest.TestCase):
                         permitted_tags=permitted_tags,
                         allowed_attributes=allowed_attributes,
                     ).xml(),
-                    "<%s></%s>" % (x, x) if not x[-1] == "/" else "<%s>" % x,
+                    f"<{x}></{x}>" if x[-1] != "/" else f"<{x}>",
                 )
 
         # test tag out of list
@@ -150,7 +150,7 @@ class TestHelpers(unittest.TestCase):
             "tbody",
             "thead",
             "tfoot",
-            "tr" "strong",
+            "tr",
         ]
         for x in out_of_list:
             T = TAG[x]
@@ -161,7 +161,7 @@ class TestHelpers(unittest.TestCase):
                     permitted_tags=permitted_tags,
                     allowed_attributes=allowed_attributes,
                 ).xml(),
-                "&lt;%s&gt;&lt;/%s&gt;" % (x, x),
+                f"&lt;{x}&gt;&lt;/{x}&gt;",
             )
         # test unusual tags
         for x in ["evil", "n0c1v3"]:
@@ -173,7 +173,7 @@ class TestHelpers(unittest.TestCase):
                     permitted_tags=permitted_tags,
                     allowed_attributes=allowed_attributes,
                 ).xml(),
-                "&lt;%s&gt;&lt;/%s&gt;" % (x, x),
+                f"&lt;{x}&gt;&lt;/{x}&gt;",
             )
         # test allowed_attributes
         s_tag = TAG["td"]("content_td", _colspan="2", _extra_attr="invalid").xml()
@@ -311,23 +311,27 @@ class TestHelpers(unittest.TestCase):
             "onfocus",
             "onmouseout",
         )
+
+        class _Spy(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.seen_attrs = []
+
+            def handle_starttag(self, tag, attrs):
+                self.seen_attrs.extend(name.lower() for name, _ in attrs)
+
+            handle_startendtag = handle_starttag
+
         for raw in payloads:
             cleaned = XML(raw, sanitize=True).xml()
-            seen_attrs = []
-
-            class _Spy(HTMLParser):
-                def handle_starttag(self, tag, attrs):
-                    seen_attrs.extend(name.lower() for name, _ in attrs)
-
-                handle_startendtag = handle_starttag
-
-            _Spy().feed(cleaned)
+            spy = _Spy()
+            spy.feed(cleaned)
+            seen_attrs = spy.seen_attrs
             for handler in event_handlers:
                 self.assertNotIn(
                     handler,
                     seen_attrs,
-                    "sanitize() leaked %s via attribute-breakout: %r"
-                    % (handler, cleaned),
+                    f"sanitize() leaked {handler} via attribute-breakout: {cleaned!r}",
                 )
 
     def test_find(self):

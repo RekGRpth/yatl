@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 | This file was extracted from the web2py Web Framework and made framework independent
 | License: BSD
@@ -13,6 +10,8 @@ from io import StringIO
 from re import DOTALL, compile, escape, sub
 
 from .helpers import xmlescape
+
+logger = logging.getLogger(__name__)
 
 
 def to_bytes(obj, charset="utf-8", errors="strict"):
@@ -35,7 +34,7 @@ def file_reader(filename, mode="rb"):
         with open(filename, mode) as fp:
             body = fp.read()
         return body
-    except IOError:
+    except OSError:
         raise RestrictedError(filename, "", "Unable to find the file")
 
 
@@ -48,11 +47,11 @@ except ImportError:
     current = None
 
     def RestrictedError(a, b, c):
-        logging.error(str(a) + ":" + str(b) + ":" + str(c))
+        logger.error(str(a) + ":" + str(b) + ":" + str(c))
         return RuntimeError
 
 
-class Node(object):
+class Node:
     """
     Basic Container Object
     """
@@ -78,7 +77,7 @@ class SuperNode(Node):
             return ""
 
     def __repr__(self):
-        return "%s->%s" % (self.name, self.value)
+        return f"{self.name}->{self.value}"
 
 
 def output_aux(node, blocks):
@@ -123,9 +122,9 @@ class BlockNode(Node):
         self.left, self.right = delimiters
 
     def __repr__(self):
-        lines = ["%sblock %s%s" % (self.left, self.name, self.right)]
+        lines = [f"{self.left}block {self.name}{self.right}"]
         lines += [str(node) for node in self.nodes]
-        lines.append("%send%s" % (self.left, self.right))
+        lines.append(f"{self.left}end{self.right}")
         return "".join(lines)
 
     def __str__(self):
@@ -143,11 +142,11 @@ class BlockNode(Node):
         Args:
             node: Node object or string to append.
         """
-        if isinstance(node, str) or isinstance(node, Node):
+        if isinstance(node, (str, Node)):
             self.nodes.append(node)
         else:
             raise TypeError(
-                "Invalid type; must be instance of ``str`` or ``BlockNode``. %s" % node
+                f"Invalid type; must be instance of ``str`` or ``BlockNode``. {node}"
             )
 
     def extend(self, other):
@@ -161,7 +160,7 @@ class BlockNode(Node):
             self.nodes.extend(other.nodes)
         else:
             raise TypeError(
-                "Invalid type; must be instance of ``BlockNode``. %s" % other
+                f"Invalid type; must be instance of ``BlockNode``. {other}"
             )
 
     def output(self, blocks):
@@ -226,7 +225,7 @@ class Content(BlockNode):
                 self.blocks[node.name] = node
         else:
             raise TypeError(
-                "Invalid type, must be instance of ``str`` or ``BlockNode``. %s" % node
+                f"Invalid type, must be instance of ``str`` or ``BlockNode``. {node}"
             )
 
     def extend(self, other):
@@ -238,14 +237,14 @@ class Content(BlockNode):
             self.blocks.update(other.blocks)
         else:
             raise TypeError(
-                "Invalid type; must be instance of ``BlockNode``. %s" % other
+                f"Invalid type; must be instance of ``BlockNode``. {other}"
             )
 
     def clear_content(self):
         self.nodes = []
 
 
-class TemplateParser(object):
+class TemplateParser:
     """Parse all blocks
 
     Args:
@@ -314,7 +313,7 @@ class TemplateParser(object):
 
         self.delimiters = delimiters
         escaped_delimiters = (escape(delimiters[0]), escape(delimiters[1]))
-        self.r_tag = compile("(%s.*?%s)" % escaped_delimiters, DOTALL)
+        self.r_tag = compile("({}.*?{})".format(*escaped_delimiters), DOTALL)
 
         # Create a root level Content that everything will go into.
         self.content = Content(name=name)
@@ -467,7 +466,7 @@ class TemplateParser(object):
             # try to read the text.
             try:
                 text = self.reader(filepath)
-            except IOError:
+            except OSError:
                 self._raise_error("Unable to open included view file: " + filepath)
         text = to_native(text)
         return text
@@ -496,7 +495,7 @@ class TemplateParser(object):
         parent will be placed in the parent templates `{{include}}` block.
         """
         # If no filename, create a dummy layout with only an {{include}}.
-        text = self._get_file_text(filename) or "%sinclude%s" % tuple(self.delimiters)
+        text = self._get_file_text(filename) or "{}include{}".format(*tuple(self.delimiters))
 
         # Create out nodes list to send to the parent
         super_nodes = []
@@ -523,12 +522,10 @@ class TemplateParser(object):
 
         # Iterate through each of our nodes
         for node in self.content.nodes:
-            # If a node is a block
-            if isinstance(node, BlockNode):
-                # That happens to be in the parent template
-                if node.name in t.content.blocks:
-                    # Do not include it
-                    continue
+            # If a node is a block that happens to be in the parent
+            # template, do not include it
+            if isinstance(node, BlockNode) and node.name in t.content.blocks:
+                continue
 
             if isinstance(node, Node):
                 # Or if the node was before the extension
@@ -654,7 +651,7 @@ class TemplateParser(object):
                     elif name == "=":
                         # So we have a variable to insert into
                         # the template
-                        buf = "\n%s(%s)" % (self.writer, value)
+                        buf = f"\n{self.writer}({value})"
                         top.append(Node(buf, pre_extend=pre_extend))
 
                     elif name == "block" and not value.startswith("="):
@@ -745,25 +742,19 @@ class TemplateParser(object):
                                 if token.startswith("="):
                                     if token.endswith("\\"):
                                         continuation = True
-                                        tokens[k] = "\n%s(%s" % (
-                                            self.writer,
-                                            token[1:].strip(),
-                                        )
+                                        tokens[k] = f"\n{self.writer}({token[1:].strip()}"
                                     else:
-                                        tokens[k] = "\n%s(%s)" % (
-                                            self.writer,
-                                            token[1:].strip(),
-                                        )
+                                        tokens[k] = f"\n{self.writer}({token[1:].strip()})"
                                 elif continuation:
                                     tokens[k] += ")"
                                     continuation = False
 
-                            buf = "\n%s" % "\n".join(tokens)
+                            buf = "\n{}".format("\n".join(tokens))
                             top.append(Node(buf, pre_extend=pre_extend))
 
                 else:
                     # It is HTML so just include it.
-                    buf = "\n%s(%r, escape=False)" % (self.writer, i)
+                    buf = f"\n{self.writer}({i!r}, escape=False)"
                     top.append(Node(buf, pre_extend=pre_extend))
 
             # Remember: tag, not tag, tag, not tag
@@ -822,9 +813,11 @@ def parse_template(
         text = filename.read()
     text = to_native(text)
     # allow optional alternative delimiters
-    if hasattr(context.get("response", None), "delimiters"):
-        if context["response"].delimiters is not None:
-            delimiters = context["response"].delimiters
+    if (
+        hasattr(context.get("response", None), "delimiters")
+        and context["response"].delimiters is not None
+    ):
+        delimiters = context["response"].delimiters
     # Use the file contents to get a parsed template and return it.
     return str(
         TemplateParser(
@@ -935,9 +928,11 @@ def render(
         reader = file_reader
 
     # allow optional alternative delimiters
-    if hasattr(context.get("response", None), "delimiters"):
-        if context["response"].delimiters is not None:
-            delimiters = context["response"].delimiters
+    if (
+        hasattr(context.get("response", None), "delimiters")
+        and context["response"].delimiters is not None
+    ):
+        delimiters = context["response"].delimiters
 
     # here to avoid circular Imports
     try:
@@ -982,11 +977,9 @@ def render(
         )
     )
 
-    try:
-        exec(code, context)
-    except Exception:
-        # for i,line in enumerate(code.split('\n')): print i,line
-        raise
+    # Executing the generated code is what rendering a template means here.
+    # for i, line in enumerate(code.split("\n")): print(i, line)
+    exec(code, context)  # noqa: S102
 
     # Returned the rendered content.
     text = context["response"].body.getvalue()
@@ -995,7 +988,7 @@ def render(
     return text
 
 
-class template(object):
+class template:
     def __init__(
         self,
         filename="{name}.html",
